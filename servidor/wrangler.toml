@@ -1,0 +1,11 @@
+# Servidor de Puduhue Terreno (Cloudflare Worker). Se publica solo desde GitHub Actions al cambiar esta carpeta.
+# keep_vars: las variables de texto y las claves configuradas en Cloudflare no se tocan al publicar.
+name = "puduhue-terreno"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+account_id = "dda1f0d0dc944e948f7cc45ad3df5f1f"
+workers_dev = true
+keep_vars = true
+
+[observability]
+enabled = true
