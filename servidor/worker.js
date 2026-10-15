@@ -24,7 +24,7 @@
   (También acepta los nombres anteriores FINN_API_KEY y FINN_SECRET_KEY.)
 */
 const FINN = "https://api.finneg.com/api";
-const VERSION_SERVIDOR = "v62"; /* se publica sola desde GitHub (carpeta servidor del repositorio actas-vivienda) */
+const VERSION_SERVIDOR = "v65"; /* se publica sola desde GitHub (carpeta servidor del repositorio actas-vivienda) */
 
 /* ---- Lectura de boletas con Claude ---- */
 const PROMPT_BOLETA = `Eres un asistente contable chileno. Lee la foto de este documento tributario (boleta, factura, boleta de honorarios, vale o comprobante) y devuelve SOLO un objeto JSON, sin texto adicional ni marcas de código, con esta forma exacta:
@@ -73,6 +73,27 @@ async function reporte(env, nombre, params) {
   try { return JSON.parse(t) } catch (e) { throw { status: 502, error: "El reporte no vino en formato JSON.", detalle: t.slice(0, 500) } }
 }
 
+/* ---- Maestros de Finnegans: listado de una entidad (para mantener al día los maestros de Rendiciones) ---- */
+const MAESTROS_FINN = ["organizacion", "producto", "proveedor", "cliente"];
+async function listarMaestro(env, entidad, desde) {
+  const tok = await tokenFinnegans(env);
+  const bases = [FINN, "https://api.teamplace.finneg.com/api"];
+  const fechas = desde ? [desde] : ["01-01-2000", "2000-01-01", ""];
+  const intentos = [];
+  for (const base of bases) for (const f of fechas) {
+    const u = new URL(`${base}/${entidad}/list`);
+    u.searchParams.set("ACCESS_TOKEN", tok);
+    if (f) u.searchParams.set("updatedSince", f);
+    let r, t;
+    try { r = await fetch(u.toString(), { headers: { Accept: "application/json" } }); t = await r.text(); }
+    catch (e) { intentos.push({ base, fecha: f, estado: "sin conexión" }); continue; }
+    const i = { base, fecha: f, estado: r.status }; intentos.push(i);
+    if (!r.ok) { i.muestra = t.slice(0, 200); continue; }
+    try { return { datos: JSON.parse(t), base, fecha: f, intentos }; } catch (e) { i.muestra = t.slice(0, 200); }
+  }
+  throw { status: 502, error: `Finnegans no entregó el listado de ${entidad}.`, detalle: JSON.stringify(intentos).slice(0, 1500) };
+}
+
 export default {
   async fetch(req, env) {
     const origen = env.ORIGEN_APP || "https://benjaminbarrientoscardenas-glitch.github.io";
@@ -112,6 +133,13 @@ export default {
         if (autorizado) for (const [k, v] of url.searchParams) p.set(k, v); // los demás usan siempre los parámetros fijos
         const datos = await reporte(env, env.FINN_REPORTE_STOCK, p);
         return json({ ok: true, reporte: env.FINN_REPORTE_STOCK, consultadoPor: correo, hora: new Date().toISOString(), datos });
+      }
+      // /maestro?entidad=organizacion → listado de un maestro de Finnegans (cualquier cuenta de Puduhue)
+      if (url.pathname === "/maestro") {
+        const entidad = (url.searchParams.get("entidad") || "").trim().toLowerCase();
+        if (!MAESTROS_FINN.includes(entidad)) return json({ error: "Ese maestro no está habilitado en el servidor." }, 403);
+        const r = await listarMaestro(env, entidad, (url.searchParams.get("desde") || "").trim());
+        return json({ ok: true, entidad, consultadoPor: correo, hora: new Date().toISOString(), origen: r.base === FINN ? "api" : "teamplace", desde: r.fecha, cantidad: Array.isArray(r.datos) ? r.datos.length : null, datos: r.datos });
       }
       // /reporte?nombre=X&PARAMWEBREPORT_...=... → solo reportes autorizados en FINN_REPORTES
       if (url.pathname === "/reporte") {
