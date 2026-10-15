@@ -881,6 +881,7 @@ p.lead{margin:0 0 18px;color:var(--muted)}
 .lnkcampo{font-weight:600;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 @keyframes flashf{0%{box-shadow:0 0 0 3px var(--act)}100%{box-shadow:0 0 0 0 transparent}}
 .f.flash,.rdfoto.flash{animation:flashf 1.8s ease-out;border-radius:10px}
+/* v71: grupo «Camionetas» en el check list de visitas (acta de entrega de vehículo Salfa Rent) */
 /* v70: campos de fecha del mismo alto y ancho que los demás campos */
 input[type=date]{-webkit-appearance:none;appearance:none;display:block;box-sizing:border-box;min-width:0;max-width:100%;line-height:normal;text-align:left}
 input[type=date]::-webkit-date-and-time-value{text-align:left;margin:0}
@@ -2307,7 +2308,28 @@ AREAS.forEach(a=>a.blocks.forEach(b=>b.groups.forEach(([g,list])=>list.forEach(r
 const AREA_NAME={};AREAS.forEach(a=>AREA_NAME[a.id]=a.name);
 const OA_CODE={oficina:"of",sala:"so",ternerera:"te",bodega:"bo",predio:"pr"};
 const CATK="actas-cl-catalogo";let CAT_ETAG="",CAT_ORIGEN="inicial";
-function catalogoSet(lista){CL_ITEMS.length=0;for(const k of Object.keys(CL_BYKEY))delete CL_BYKEY[k];
+/* v71: ítems que se agregan una sola vez al catálogo (también al que está en OneDrive), sin tocar los existentes.
+   Si alguno de una tanda ya está en el catálogo (aunque esté retirado), la tanda no se vuelve a agregar. */
+const CL_NUEVOS=[{tanda:"v71-camionetas",area:"predio",group:"Camionetas",despues:"cl-49",items:[
+ ["cl-cam1",1,"Cada camioneta del predio tiene su Acta de entrega y responsabilidad de vehículo firmada por el conductor (patente, kilometraje de entrega y estado inicial)","Acta de entrega de vehículo — Flota Salfa Rent","Copia del acta firmada; anotar la patente en observaciones"],
+ ["cl-cam2",0,"Accesorios de seguridad a bordo: rueda de repuesto, gata, llave de rueda, triángulos, chaleco reflectante, extintor vigente y botiquín","Acta de entrega de vehículo, ítems 1 a 7","Revisión de la camioneta"],
+ ["cl-cam3",0,"Manual del conductor, TAG y llaves según lo entregado en el acta","Acta de entrega de vehículo, ítems 8 a 10","Revisión de la camioneta"],
+ ["cl-cam4",1,"Documentos a bordo y vigentes: permiso de circulación, revisión técnica, revisión de gases, SOAP y póliza de seguro","Acta de entrega de vehículo, ítems 11 y 12","Documentos en la camioneta (fechas de vencimiento)"],
+ ["cl-cam5",1,"Mantenciones al día: la camioneta se presentó en un taller autorizado por Salfa Rent cada 10.000 km (tolerancia máxima de 500 km)","Acta de entrega de vehículo, punto 2.6","Kilometraje actual vs. última mantención (registro Salfa Rent o libro de servicio)"],
+ ["cl-cam6",1,"Si la camioneta tiene choques o daños visibles: el administrador avisó de inmediato a su jefatura y entregó la documentación del siniestro dentro de 24 horas (sin daños: marcar N/A)","Acta de entrega de vehículo, puntos 2.9 y 2.13","Observación de la camioneta + preguntar al administrador si avisó"],
+ ["cl-cam7",0,"Chequeo diario preoperacional realizado: niveles, neumáticos, luces, frenos, cinturones, parabrisas y alarma de retroceso","Acta de entrega de vehículo, punto 2.5","Entrevista al conductor"],
+ ["cl-cam8",0,"Interior sin señales de fumar o vapear; carga amarrada y bien estibada, sin personas en la pickup","Acta de entrega de vehículo, puntos 2.4 y 2.7",OBS]]}];
+let CAT_AGREGADO=false;
+function agregarNuevos(lista){let out=lista.map(i=>Object.assign({},i)),add=false;
+  for(const t of CL_NUEVOS){if(t.items.some(x=>out.some(i=>i.key===x[0])))continue;
+    let n=Math.max(0,...out.filter(i=>i.sheet==="cl").map(i=>+i.n||0));
+    const ord=out.sort((a,b)=>(a.orden||0)-(b.orden||0));
+    let pos=ord.findIndex(i=>i.key===t.despues);
+    if(pos<0){const ps=ord.map((i,k)=>i.area===t.area?k:-1).filter(k=>k>=0);pos=ps.length?ps[ps.length-1]:ord.length-1}
+    ord.splice(pos+1,0,...t.items.map(x=>({key:x[0],area:t.area,sheet:"cl",fam:"Control y gestión",group:t.group,n:++n,txt:x[2],prot:x[3],evid:x[4],star:!!x[1]})));
+    ord.forEach((i,k)=>i.orden=k);out=ord;add=true}
+  return {lista:out,add}}
+function catalogoSet(lista){const ag=agregarNuevos(lista);lista=ag.lista;if(ag.add)CAT_AGREGADO=true;CL_ITEMS.length=0;for(const k of Object.keys(CL_BYKEY))delete CL_BYKEY[k];
   lista.slice().sort((a,b)=>(a.orden||0)-(b.orden||0)).forEach((x,i)=>{const it=Object.assign({},x,{orden:i,areaName:AREA_NAME[x.area]||x.area});CL_ITEMS.push(it);CL_BYKEY[it.key]=it})}
 catalogoSet(CL_DEFAULT);
 try{const c=JSON.parse(localStorage.getItem(CATK)||"null");if(c&&c.items&&c.items.length){catalogoSet(c.items);CAT_ETAG=c.etag||"";CAT_ORIGEN="onedrive"}}catch(e){}
@@ -2357,9 +2379,10 @@ async function cargarCatalogo(){
   if(!DB||navigator.onLine===false)return false;
   let meta=null;try{const f=await clCarpeta(CAT_PATH);meta=await gjson(`/drives/${M365.drive}/items/${f}:/${encName(CAT_FILE)}?$select=id,eTag`)}catch(e){if(e.code!=="not_found")throw e}
   if(!meta){if(esAdmin()){await guardarCatalogo(false);return true}return false}
-  if(meta.eTag===CAT_ETAG)return false;
+  if(meta.eTag===CAT_ETAG){if(CAT_AGREGADO&&esAdmin()){CAT_AGREGADO=false;await guardarCatalogo(false)}return false}
   const r=await gfetch(`/drives/${M365.drive}/items/${meta.id}/content`);const buf=await r.arrayBuffer();
-  const lista=catalogoDesdeExcel(buf);catalogoSet(lista);CAT_ETAG=meta.eTag;CAT_ORIGEN="onedrive";
+  const lista=catalogoDesdeExcel(buf);CAT_AGREGADO=false;catalogoSet(lista);CAT_ETAG=meta.eTag;CAT_ORIGEN="onedrive";
+  if(CAT_AGREGADO&&esAdmin()){CAT_AGREGADO=false;await guardarCatalogo(false);return true}
   try{localStorage.setItem(CATK,JSON.stringify({etag:CAT_ETAG,items:CL_ITEMS.map(i=>({key:i.key,area:i.area,sheet:i.sheet,fam:i.fam,group:i.group,n:i.n,txt:i.txt,prot:i.prot,evid:i.evid,star:i.star,retirado:i.retirado,orden:i.orden}))}))}catch(e){}
   return true}
 async function guardarCatalogo(manual){
