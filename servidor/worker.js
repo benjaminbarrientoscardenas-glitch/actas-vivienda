@@ -78,7 +78,7 @@ const MAESTROS_FINN = ["organizacion", "producto", "proveedor", "cliente"];
 async function listarMaestro(env, entidad, desde) {
   const tok = await tokenFinnegans(env);
   const bases = [FINN, "https://api.teamplace.finneg.com/api"];
-  const fechas = desde ? [desde] : ["01-01-2000", "2000-01-01", ""];
+  const fechas = desde ? [desde] : ["", "01-01-2000", "2000-01-01"]; // sin fecha entrega el maestro completo (probado con organizacion)
   const intentos = [];
   for (const base of bases) for (const f of fechas) {
     const u = new URL(`${base}/${entidad}/list`);
