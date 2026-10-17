@@ -9,6 +9,7 @@
     notificaciones de Google, Apple o Mozilla solo lo transporta.
 */
 import { DurableObject } from "cloudflare:workers";
+import { santiago, armarRecordatorios, validarAgenda, HORA_RECORDATORIOS } from "./recordatorios.js";
 
 const te = new TextEncoder();
 const b64u = {
@@ -98,19 +99,48 @@ export class Avisos extends DurableObject {
     }
     return res;
   }
+  /* v84: agenda de pendientes que deja la app y recordatorios diarios */
+  async guardarAgenda(ag) { await this.ctx.storage.put("agenda", ag); return { aprobar: ag.aprobar.length, enviar: ag.enviar.length }; }
+  async leerAgenda() { return (await this.ctx.storage.get("agenda")) || null; }
+  async estadoRec() { const a = await this.leerAgenda(); return { agenda: a ? a.generado : null, ultimo: (await this.ctx.storage.get("rec:ultimo")) || null }; }
+  async correrRecordatorios(sujeto, cuando, forzar) {
+    const ahora = new Date(cuando || Date.now()), s = santiago(ahora);
+    if (!forzar) {
+      if (s.hora !== HORA_RECORDATORIOS) return { omitido: "fuera de horario" };
+      const u = await this.ctx.storage.get("rec:ultimo"); if (u && u.fecha === s.fecha) return { omitido: "ya se enviaron hoy" };
+    }
+    const ag = await this.leerAgenda(); let res;
+    if (!ag) res = { fecha: s.fecha, nota: "todavía no hay agenda" };
+    else if (Date.now() - Date.parse(ag.generado) > 7 * 864e5) res = { fecha: s.fecha, nota: "agenda de hace más de 7 días: no se envió nada" };
+    else {
+      const { notificaciones } = armarRecordatorios(ag, ahora); let enviadas = 0, sinEquipos = 0;
+      for (const n of notificaciones) { const r = await this.enviar([n.para], { titulo: n.titulo, texto: n.texto, url: n.url, etiqueta: n.etiqueta }, sujeto); enviadas += r.enviadas; sinEquipos += r.sinEquipos.length; }
+      res = { fecha: s.fecha, notificaciones: notificaciones.length, enviadas, sinEquipos };
+    }
+    res.hora = new Date().toISOString(); await this.ctx.storage.put("rec:ultimo", res); return res;
+  }
+  /* lo que saldría el próximo día hábil a las 9:00 (hoy, si todavía no es esa hora) */
+  async proximos() {
+    const ag = await this.leerAgenda(); let t = Date.now();
+    for (let k = 0; k < 8; k++) { const s = santiago(new Date(t)); if (s.dow <= 5 && (k > 0 || s.hora <= HORA_RECORDATORIOS)) break; t += 864e5; }
+    const r = armarRecordatorios(ag, new Date(t));
+    return { agenda: ag ? { generado: ag.generado, aprobar: ag.aprobar.length, enviar: ag.enviar.length } : null, fecha: r.hoy.fecha, notificaciones: r.notificaciones };
+  }
 }
+export const sujetoDe = env => (env.ORIGEN_APP || "https://benjaminbarrientoscardenas-glitch.github.io").replace(/\/+$/, "") + "/actas-vivienda/";
+export const objetoAvisos = env => env.AVISOS.get(env.AVISOS.idFromName("puduhue"));
 
 /* Rutas /push/... (la sesión Microsoft ya fue verificada: llega el correo de quien pide) */
-export async function rutasPush(req, env, url, correo, json) {
+export async function rutasPush(req, env, url, correo, json, admin) {
   if (!url.pathname.startsWith("/push/")) return null;
   if (!env.AVISOS) return json({ error: "Las notificaciones no están configuradas en el servidor." }, 500);
-  const obj = env.AVISOS.get(env.AVISOS.idFromName("puduhue"));
+  const obj = objetoAvisos(env);
   const dominio = "@" + (env.DOMINIO || "puduhue.cl").toLowerCase();
-  const origen = env.ORIGEN_APP || "https://benjaminbarrientoscardenas-glitch.github.io";
-  const sujeto = origen.replace(/\/+$/, "") + "/actas-vivienda/";
+  const sujeto = sujetoDe(env);
   const cuerpo = async () => { try { return await req.json(); } catch (e) { return null; } };
   const p = url.pathname.slice(6);
   if (p === "clave") return json({ ok: true, clave: await obj.clavePublica() });
+  if (p === "recordatorios" && req.method === "GET") { if (!admin) return json({ error: "Solo el administrador de la app." }, 403); return json({ ok: true, estado: await obj.estadoRec(), proximos: await obj.proximos() }); }
   if (p === "estado") return json({ ok: true, equipos: (await obj.equipos(correo)).map(x => ({ equipo: x.equipo, desde: x.desde, endpoint: x.endpoint })) });
   if (req.method !== "POST") return json({ error: "Método no permitido." }, 405);
   const b = await cuerpo(); if (!b) return json({ error: "Cuerpo inválido." }, 400);
@@ -118,6 +148,13 @@ export async function rutasPush(req, env, url, correo, json) {
     const s = b.suscripcion || {};
     if (!okEndpoint(s.endpoint) || !s.keys || !s.keys.p256dh || !s.keys.auth) return json({ error: "Suscripción inválida." }, 400);
     return json({ ok: true, equipos: await obj.suscribir(correo, s, b.equipo) });
+  }
+  if (p === "agenda") return json({ ok: true, ...(await obj.guardarAgenda(validarAgenda(b, dominio))) });
+  if (p === "recordatorios") {
+    if (!admin) return json({ error: "Solo el administrador de la app." }, 403);
+    const pr = await obj.proximos(); let enviadas = 0;
+    for (const n of pr.notificaciones.slice(0, 6)) { const r = await obj.enviar([correo], { titulo: "Prueba · " + n.titulo, texto: n.texto, url: n.url, etiqueta: "prueba-" + n.etiqueta + "-" + enviadas }, sujeto); enviadas += r.enviadas; }
+    return json({ ok: true, fecha: pr.fecha, notificaciones: pr.notificaciones.length, enviadas });
   }
   if (p === "quitar") return json({ ok: true, equipos: await obj.quitar(correo, String(b.endpoint || "")) });
   if (p === "prueba") {

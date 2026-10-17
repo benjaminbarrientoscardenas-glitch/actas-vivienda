@@ -18,3 +18,7 @@ class_name = "Avisos"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Avisos"]
+
+# Recordatorios (v84): cada hora; el código decide si es la hora (9:00 de Santiago, días hábiles)
+[triggers]
+crons = ["5 * * * *"]

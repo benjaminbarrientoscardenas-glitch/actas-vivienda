@@ -23,12 +23,14 @@
     DOMINIO             (texto)   opcional. Por defecto puduhue.cl
   Notificaciones (v83): no requieren variables. Los equipos registrados y las claves de envío se guardan en el
   Durable Object AVISOS (ver push.js y wrangler.toml); se crea solo al publicar.
+  Recordatorios (v84): una tarea programada cada hora (wrangler.toml, [triggers]); a las 9:00 de Santiago en
+  días hábiles revisa la agenda de pendientes que deja la app y avisa (ver recordatorios.js).
   (También acepta los nombres anteriores FINN_API_KEY y FINN_SECRET_KEY.)
 */
-import { rutasPush, Avisos } from "./push.js";
+import { rutasPush, Avisos, sujetoDe, objetoAvisos } from "./push.js";
 export { Avisos };
 const FINN = "https://api.finneg.com/api";
-const VERSION_SERVIDOR = "v83"; /* se publica sola desde GitHub (carpeta servidor del repositorio actas-vivienda) */
+const VERSION_SERVIDOR = "v84"; /* se publica sola desde GitHub (carpeta servidor del repositorio actas-vivienda) */
 
 /* ---- Lectura de boletas con Claude ---- */
 const PROMPT_BOLETA = `Eres un asistente contable chileno. Lee la foto de este documento tributario (boleta, factura, boleta de honorarios, vale o comprobante) y devuelve SOLO un objeto JSON, sin texto adicional ni marcas de código, con esta forma exacta:
@@ -105,7 +107,7 @@ export default {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } });
     const url = new URL(req.url);
-    if (url.pathname === "/" || url.pathname === "/salud") return json({ ok: true, servicio: "Puduhue Terreno", version: VERSION_SERVIDOR, hora: new Date().toISOString(), credenciales: !!((env.FINN_CLIENT_ID || env.FINN_API_KEY) && (env.FINN_CLIENT_SECRET || env.FINN_SECRET_KEY)), reporteStock: env.FINN_REPORTE_STOCK || null, lecturaBoletas: !!env.ANTHROPIC_API_KEY, notificaciones: !!env.AVISOS });
+    if (url.pathname === "/" || url.pathname === "/salud") return json({ ok: true, servicio: "Puduhue Terreno", version: VERSION_SERVIDOR, hora: new Date().toISOString(), credenciales: !!((env.FINN_CLIENT_ID || env.FINN_API_KEY) && (env.FINN_CLIENT_SECRET || env.FINN_SECRET_KEY)), reporteStock: env.FINN_REPORTE_STOCK || null, lecturaBoletas: !!env.ANTHROPIC_API_KEY, notificaciones: !!env.AVISOS, recordatorios: env.AVISOS ? await objetoAvisos(env).estadoRec().catch(() => null) : null });
 
     // Quién pide: se valida la sesión Microsoft que ya tiene la app
     const auth = req.headers.get("Authorization") || "";
@@ -121,7 +123,7 @@ export default {
 
     try {
       // /push/... → notificaciones en el teléfono (cualquier cuenta de Puduhue)
-      const rp = await rutasPush(req, env, url, correo, json); if (rp) return rp;
+      const rp = await rutasPush(req, env, url, correo, json, autorizado); if (rp) return rp;
       // /boleta → lectura de un documento con IA (cualquier cuenta de Puduhue)
       if (url.pathname === "/boleta" && req.method === "POST") {
         let body; try { body = await req.json() } catch (e) { return json({ error: "Cuerpo inválido." }, 400); }
@@ -159,5 +161,10 @@ export default {
     } catch (e) { return json({ error: e.error || "Error inesperado.", estado: e.estado, detalle: e.detalle || String(e.message || "") }, e.status || 500); }
 
     return json({ error: "Ruta no encontrada." }, 404);
+  },
+  /* v84: cada hora; los recordatorios salen a las 9:00 de Santiago en días hábiles (una vez al día) */
+  async scheduled(ev, env, ctx) {
+    if (!env.AVISOS) return;
+    ctx.waitUntil(objetoAvisos(env).correrRecordatorios(sujetoDe(env), ev.scheduledTime, false).then(r => console.log("recordatorios", JSON.stringify(r))).catch(e => console.error("recordatorios", e)));
   }
 };
