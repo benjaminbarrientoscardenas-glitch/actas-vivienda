@@ -127,7 +127,7 @@ export class Avisos extends DurableObject {
     return { agenda: ag ? { generado: ag.generado, aprobar: ag.aprobar.length, enviar: ag.enviar.length } : null, fecha: r.hoy.fecha, notificaciones: r.notificaciones };
   }
 }
-export const sujetoDe = env => (env.ORIGEN_APP || "https://benjaminbarrientoscardenas-glitch.github.io").replace(/\/+$/, "") + "/actas-vivienda/";
+export const sujetoDe = () => "https://puduhue.github.io/puduhue-terreno/"; /* contacto que ven los servicios de notificaciones */
 export const objetoAvisos = env => env.AVISOS.get(env.AVISOS.idFromName("puduhue"));
 
 /* Rutas /push/... (la sesión Microsoft ya fue verificada: llega el correo de quien pide) */

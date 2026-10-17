@@ -19,7 +19,9 @@
                                   El stock (/stock) lo puede traer cualquier cuenta de Puduhue (desde la app v61).
     ANTHROPIC_API_KEY   (Secret)  clave de la API de Claude, para leer boletas (módulo Rendiciones)
     ANTHROPIC_MODEL     (texto)   opcional. Por defecto claude-haiku-4-5
-    ORIGEN_APP          (texto)   opcional. Por defecto https://benjaminbarrientoscardenas-glitch.github.io
+    ORIGEN_APP          (texto)   opcional. Direcciones adicionales desde donde se puede usar el servidor, separadas por coma.
+                                  Siempre se aceptan https://puduhue.github.io (app en la organización Puduhue, desde la v85)
+                                  y https://benjaminbarrientoscardenas-glitch.github.io (dirección anterior, durante la mudanza).
     DOMINIO             (texto)   opcional. Por defecto puduhue.cl
   Notificaciones (v83): no requieren variables. Los equipos registrados y las claves de envío se guardan en el
   Durable Object AVISOS (ver push.js y wrangler.toml); se crea solo al publicar.
@@ -30,7 +32,7 @@
 import { rutasPush, Avisos, sujetoDe, objetoAvisos } from "./push.js";
 export { Avisos };
 const FINN = "https://api.finneg.com/api";
-const VERSION_SERVIDOR = "v84"; /* se publica sola desde GitHub (carpeta servidor del repositorio actas-vivienda) */
+const VERSION_SERVIDOR = "v85"; /* se publica sola desde GitHub (carpeta servidor del repositorio actas-vivienda) */
 
 /* ---- Lectura de boletas con Claude ---- */
 const PROMPT_BOLETA = `Eres un asistente contable chileno. Lee la foto de este documento tributario (boleta, factura, boleta de honorarios, vale o comprobante) y devuelve SOLO un objeto JSON, sin texto adicional ni marcas de código, con esta forma exacta:
@@ -102,8 +104,9 @@ async function listarMaestro(env, entidad, desde) {
 
 export default {
   async fetch(req, env) {
-    const origen = env.ORIGEN_APP || "https://benjaminbarrientoscardenas-glitch.github.io";
-    const cors = { "Access-Control-Allow-Origin": origen, "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "Authorization,Content-Type", "Access-Control-Max-Age": "86400" };
+    const origenes = ["https://puduhue.github.io", "https://benjaminbarrientoscardenas-glitch.github.io"].concat((env.ORIGEN_APP || "").split(",").map(x => x.trim().replace(/\/+$/, "")).filter(Boolean));
+    const pide = req.headers.get("Origin") || "", origen = origenes.includes(pide) ? pide : origenes[0];
+    const cors = { "Access-Control-Allow-Origin": origen, Vary: "Origin", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "Authorization,Content-Type", "Access-Control-Max-Age": "86400" };
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } });
     const url = new URL(req.url);
