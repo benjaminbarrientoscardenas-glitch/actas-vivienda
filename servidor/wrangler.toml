@@ -9,3 +9,12 @@ keep_vars = true
 
 [observability]
 enabled = true
+
+# Notificaciones en el teléfono (v83): almacenamiento propio del servidor para los equipos registrados
+[[durable_objects.bindings]]
+name = "AVISOS"
+class_name = "Avisos"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Avisos"]

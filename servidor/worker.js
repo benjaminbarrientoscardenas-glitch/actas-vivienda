@@ -21,10 +21,14 @@
     ANTHROPIC_MODEL     (texto)   opcional. Por defecto claude-haiku-4-5
     ORIGEN_APP          (texto)   opcional. Por defecto https://benjaminbarrientoscardenas-glitch.github.io
     DOMINIO             (texto)   opcional. Por defecto puduhue.cl
+  Notificaciones (v83): no requieren variables. Los equipos registrados y las claves de envío se guardan en el
+  Durable Object AVISOS (ver push.js y wrangler.toml); se crea solo al publicar.
   (También acepta los nombres anteriores FINN_API_KEY y FINN_SECRET_KEY.)
 */
+import { rutasPush, Avisos } from "./push.js";
+export { Avisos };
 const FINN = "https://api.finneg.com/api";
-const VERSION_SERVIDOR = "v69"; /* se publica sola desde GitHub (carpeta servidor del repositorio actas-vivienda) */
+const VERSION_SERVIDOR = "v83"; /* se publica sola desde GitHub (carpeta servidor del repositorio actas-vivienda) */
 
 /* ---- Lectura de boletas con Claude ---- */
 const PROMPT_BOLETA = `Eres un asistente contable chileno. Lee la foto de este documento tributario (boleta, factura, boleta de honorarios, vale o comprobante) y devuelve SOLO un objeto JSON, sin texto adicional ni marcas de código, con esta forma exacta:
@@ -101,7 +105,7 @@ export default {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } });
     const url = new URL(req.url);
-    if (url.pathname === "/" || url.pathname === "/salud") return json({ ok: true, servicio: "Puduhue Terreno", version: VERSION_SERVIDOR, hora: new Date().toISOString(), credenciales: !!((env.FINN_CLIENT_ID || env.FINN_API_KEY) && (env.FINN_CLIENT_SECRET || env.FINN_SECRET_KEY)), reporteStock: env.FINN_REPORTE_STOCK || null, lecturaBoletas: !!env.ANTHROPIC_API_KEY });
+    if (url.pathname === "/" || url.pathname === "/salud") return json({ ok: true, servicio: "Puduhue Terreno", version: VERSION_SERVIDOR, hora: new Date().toISOString(), credenciales: !!((env.FINN_CLIENT_ID || env.FINN_API_KEY) && (env.FINN_CLIENT_SECRET || env.FINN_SECRET_KEY)), reporteStock: env.FINN_REPORTE_STOCK || null, lecturaBoletas: !!env.ANTHROPIC_API_KEY, notificaciones: !!env.AVISOS });
 
     // Quién pide: se valida la sesión Microsoft que ya tiene la app
     const auth = req.headers.get("Authorization") || "";
@@ -116,6 +120,8 @@ export default {
     if (url.pathname === "/reporte" && !autorizado) return json({ error: "Tu cuenta no está autorizada para consultar reportes de Finnegans." }, 403);
 
     try {
+      // /push/... → notificaciones en el teléfono (cualquier cuenta de Puduhue)
+      const rp = await rutasPush(req, env, url, correo, json); if (rp) return rp;
       // /boleta → lectura de un documento con IA (cualquier cuenta de Puduhue)
       if (url.pathname === "/boleta" && req.method === "POST") {
         let body; try { body = await req.json() } catch (e) { return json({ error: "Cuerpo inválido." }, 400); }
