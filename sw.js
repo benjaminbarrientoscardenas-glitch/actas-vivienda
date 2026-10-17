@@ -1,5 +1,5 @@
 /* Guarda la app en el teléfono para que abra sin señal. Cambia VER al publicar una versión nueva. */
-const VER="actas-v89";
+const VER="actas-v90";
 const FILES=["./","index.html","manifest.json","icon-180.png","icon-192.png","icon-512.png","badge-96.png"];
 /* Bibliotecas grandes que no cambian entre versiones (lector de PDF): se descargan la primera vez que se usan
    y quedan guardadas aparte, para no bajarlas de nuevo con cada versión. */
